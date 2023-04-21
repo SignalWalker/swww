@@ -1415,6 +1415,7 @@ dependencies = [
  "glutin",
  "keyframe",
  "log",
+ "nix",
  "rand",
  "raw-window-handle",
  "sd-notify",
