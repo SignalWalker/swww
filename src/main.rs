@@ -1,6 +1,6 @@
 use clap::Parser;
 use fast_image_resize::{FilterType, PixelType, Resizer};
-use image::{codecs::gif::GifDecoder, AnimationDecoder, RgbImage};
+use image::{codecs::gif::GifDecoder, AnimationDecoder, RgbaImage};
 use std::{
     fs::File,
     io::{stdin, BufReader, Read},
@@ -130,7 +130,7 @@ fn split_cmdline_outputs(outputs: &str) -> Vec<String> {
         .collect()
 }
 
-fn read_img(path: &Path) -> Result<(RgbImage, bool), String> {
+fn read_img(path: &Path) -> Result<(RgbaImage, bool), String> {
     if let Some("-") = path.to_str() {
         let mut reader = BufReader::new(stdin());
         let mut buffer = Vec::new();
@@ -139,7 +139,7 @@ fn read_img(path: &Path) -> Result<(RgbImage, bool), String> {
         }
 
         return match image::load_from_memory(&buffer) {
-            Ok(img) => Ok((img.into_rgb8(), false)),
+            Ok(img) => Ok((img.into_rgba8(), false)),
             Err(e) => return Err(format!("failed load image from memory: {e}")),
         };
     }
@@ -156,14 +156,14 @@ fn read_img(path: &Path) -> Result<(RgbImage, bool), String> {
 
     let is_gif = imgbuf.format() == Some(image::ImageFormat::Gif);
     match imgbuf.decode() {
-        Ok(img) => Ok((img.into_rgb8(), is_gif)),
+        Ok(img) => Ok((img.into_rgba8(), is_gif)),
         Err(e) => Err(format!("failed to decode image: {e}")),
     }
 }
 
 fn make_img_request(
     img: &cli::Img,
-    img_raw: image::RgbImage,
+    img_raw: image::RgbaImage,
     dims: &[(u32, u32)],
     outputs: &[Vec<String>],
 ) -> Result<communication::ImageRequest, String> {
@@ -270,10 +270,6 @@ fn make_animation_request(
     Ok(animations)
 }
 
-fn rgba_to_rgb(rgba: image::RgbaImage) -> RgbImage {
-    image::DynamicImage::ImageRgba8(rgba).into_rgb8()
-}
-
 fn compress_frames(
     gif: GifDecoder<BufReader<File>>,
     dim: (u32, u32),
@@ -289,9 +285,9 @@ fn compress_frames(
     let first_duration = first.delay().numer_denom_ms();
     let first_duration = Duration::from_millis((first_duration.0 / first_duration.1).into());
     let first_img = if no_resize {
-        img_pad(rgba_to_rgb(first.into_buffer()), dim, color)?
+        img_pad(first.into_buffer(), dim, color)?
     } else {
-        img_resize(rgba_to_rgb(first.into_buffer()), dim, filter)?
+        img_resize(first.into_buffer(), dim, filter)?
     };
 
     let mut canvas = first_img.clone();
@@ -300,9 +296,9 @@ fn compress_frames(
         let duration = Duration::from_millis((dur_num / dur_div).into());
 
         let img = if no_resize {
-            img_pad(rgba_to_rgb(frame.into_buffer()), dim, color)?
+            img_pad(frame.into_buffer(), dim, color)?
         } else {
-            img_resize(rgba_to_rgb(frame.into_buffer()), dim, filter)?
+            img_resize(frame.into_buffer(), dim, filter)?
         };
 
         compressed_frames.push((BitPack::pack(&mut canvas, &img)?, duration));
@@ -324,13 +320,13 @@ fn make_filter(filter: &cli::Filter) -> fast_image_resize::FilterType {
 }
 
 fn img_pad(
-    mut img: image::RgbImage,
+    mut img: image::RgbaImage,
     dimensions: (u32, u32),
     color: &[u8; 3],
 ) -> Result<Vec<u8>, String> {
     let (padded_w, padded_h) = dimensions;
     let (padded_w, padded_h) = (padded_w as usize, padded_h as usize);
-    let mut padded = Vec::with_capacity(padded_w * padded_w * 3);
+    let mut padded = Vec::with_capacity(padded_w * padded_w * 4);
 
     let img = image::imageops::crop(&mut img, 0, 0, dimensions.0, dimensions.1).to_image();
     let (img_w, img_h) = img.dimensions();
@@ -338,47 +334,67 @@ fn img_pad(
     let raw_img = img.into_vec();
 
     for _ in 0..(((padded_h - img_h) / 2) * padded_w) {
-        padded.extend_from_slice(color);
+        padded.push(color[2]);
+        padded.push(color[1]);
+        padded.push(color[0]);
+        padded.push(255);
     }
 
     for row in 0..img_h {
         for _ in 0..(padded_w - img_w) / 2 {
-            padded.extend_from_slice(color);
+            padded.push(color[2]);
+            padded.push(color[1]);
+            padded.push(color[0]);
+            padded.push(255);
         }
 
-        for pixel in raw_img[(row * img_w * 3)..((row + 1) * img_w * 3)].chunks_exact(3) {
-            padded.extend_from_slice(pixel);
+        for pixel in raw_img[(row * img_w * 4)..((row + 1) * img_w * 4)].chunks_exact(4) {
+            padded.push(pixel[2]);
+            padded.push(pixel[1]);
+            padded.push(pixel[0]);
+            padded.push(pixel[3]);
         }
         for _ in 0..(padded_w - img_w) / 2 {
-            padded.extend_from_slice(color);
+            padded.push(color[2]);
+            padded.push(color[1]);
+            padded.push(color[0]);
+            padded.push(255);
         }
     }
 
-    while padded.len() < (padded_h * padded_w * 3) {
-        padded.extend_from_slice(color);
+    while padded.len() < (padded_h * padded_w * 4) {
+        padded.push(color[2]);
+        padded.push(color[1]);
+        padded.push(color[0]);
+        padded.push(255);
     }
 
     Ok(padded)
 }
 
 fn img_resize(
-    img: image::RgbImage,
+    img: image::RgbaImage,
     dimensions: (u32, u32),
     filter: FilterType,
 ) -> Result<Vec<u8>, String> {
     let (width, height) = dimensions;
     let (img_w, img_h) = img.dimensions();
-    let resized_img = if (img_w, img_h) != (width, height) {
-        let src = match fast_image_resize::Image::from_vec_u8(
+    let mut resized_img = if (img_w, img_h) != (width, height) {
+        let mut src = match fast_image_resize::Image::from_vec_u8(
             // We unwrap below because we know the images's dimensions should never be 0
             NonZeroU32::new(img_w).unwrap(),
             NonZeroU32::new(img_h).unwrap(),
             img.into_raw(),
-            PixelType::U8x3,
+            PixelType::U8x4,
         ) {
             Ok(i) => i,
             Err(e) => return Err(e.to_string()),
         };
+
+        let alpha_mul_div = fast_image_resize::MulDiv::default();
+        if let Err(e) = alpha_mul_div.multiply_alpha_inplace(&mut src.view_mut()) {
+            return Err(e.to_string());
+        }
 
         // We unwrap below because we know the outputs's dimensions should never be 0
         let new_w = NonZeroU32::new(width).unwrap();
@@ -386,7 +402,7 @@ fn img_resize(
         let mut src_view = src.view();
         src_view.set_crop_box_to_fit_dst_size(new_w, new_h, Some((0.5, 0.5)));
 
-        let mut dst = fast_image_resize::Image::new(new_w, new_h, PixelType::U8x3);
+        let mut dst = fast_image_resize::Image::new(new_w, new_h, PixelType::U8x4);
         let mut dst_view = dst.view_mut();
 
         let mut resizer = Resizer::new(fast_image_resize::ResizeAlg::Convolution(filter));
@@ -394,10 +410,20 @@ fn img_resize(
             return Err(e.to_string());
         }
 
+        if let Err(e) = alpha_mul_div.divide_alpha_inplace(&mut dst_view) {
+            return Err(e.to_string());
+        }
+
         dst.into_vec()
     } else {
         img.into_vec()
     };
+
+    // The ARGB is 'little endian', so here we must  put the order
+    // of bytes 'in reverse', so it needs to be BGRA.
+    for pixel in resized_img.chunks_exact_mut(4) {
+        pixel.swap(0, 2);
+    }
 
     Ok(resized_img)
 }

@@ -2,27 +2,18 @@
 //! them fail there is no point in continuing. All of the initialization code, for example, is full
 //! of `expects`, **on purpose**, because we **want** to unwind and exit when they happen
 
-mod renderer;
 mod wallpaper;
 use log::{debug, error, info, LevelFilter};
 use nix::{
     poll::{poll, PollFd, PollFlags},
     sys::signal::{self, SigHandler, Signal},
 };
-use renderer::Renderer;
 use simplelog::{ColorChoice, TermLogger, TerminalMode, ThreadLogMode};
 use wallpaper::Wallpaper;
 
-use glutin::{
-    api::egl::{config::Config, context::PossiblyCurrentContext, display::Display},
-    config::Api,
-    context::ContextAttributesBuilder,
-    display::GlDisplay,
-};
-
 use std::{
     fs,
-    num::NonZeroU32,
+    num::NonZeroI32,
     os::{
         fd::{AsRawFd, RawFd},
         unix::net::{UnixListener, UnixStream},
@@ -31,11 +22,9 @@ use std::{
     sync::RwLock,
 };
 
-use raw_window_handle::{RawDisplayHandle, WaylandDisplayHandle};
-
 use smithay_client_toolkit::{
     compositor::{CompositorHandler, CompositorState, Region},
-    delegate_compositor, delegate_layer, delegate_output, delegate_registry,
+    delegate_compositor, delegate_layer, delegate_output, delegate_registry, delegate_shm,
     output::{OutputHandler, OutputState},
     registry::{ProvidesRegistryState, RegistryState},
     registry_handlers,
@@ -43,6 +32,7 @@ use smithay_client_toolkit::{
         wlr_layer::{Layer, LayerShell, LayerShellHandler, LayerSurface, LayerSurfaceConfigure},
         WaylandSurface,
     },
+    shm::{slot::SlotPool, Shm, ShmHandler},
 };
 
 use wayland_client::{
@@ -85,7 +75,7 @@ fn main() -> DaemonResult<()> {
         registry_queue_init(&conn).expect("failed to initialize the event queue");
     let qh = event_queue.handle();
 
-    let mut daemon = Daemon::new(&conn, &globals, &qh);
+    let mut daemon = Daemon::new(&globals, &qh);
 
     if let Ok(true) = sd_notify::booted() {
         if let Err(e) = sd_notify::notify(true, &[sd_notify::NotifyState::Ready]) {
@@ -126,6 +116,7 @@ fn main() -> DaemonResult<()> {
         }
     }
 
+    info!("Goodbye!");
     Ok(())
 }
 
@@ -213,25 +204,21 @@ impl PollHandler {
     }
 }
 
-struct Daemon {
+pub struct Daemon {
     // Wayland stuff
     layer_shell: LayerShell,
     compositor_state: CompositorState,
     registry_state: RegistryState,
     output_state: OutputState,
-
-    // glutin stuff
-    context: PossiblyCurrentContext,
-    config: Config,
-    display: Display,
+    shm: Shm,
+    pool: SlotPool,
 
     // swww stuff
     wallpapers: Vec<Wallpaper>,
-    renderer: Renderer,
 }
 
 impl Daemon {
-    pub fn new(conn: &Connection, globals: &GlobalList, qh: &QueueHandle<Self>) -> Self {
+    pub fn new(globals: &GlobalList, qh: &QueueHandle<Self>) -> Self {
         // The compositor (not to be confused with the server which is commonly called the compositor) allows
         // configuring surfaces to be presented.
         let compositor_state =
@@ -239,35 +226,8 @@ impl Daemon {
 
         let layer_shell = LayerShell::bind(globals, qh).expect("layer shell is not available");
 
-        let mut handle = WaylandDisplayHandle::empty();
-        handle.display = conn.backend().display_ptr() as *mut _;
-        let display_handle = RawDisplayHandle::Wayland(handle);
-        let display =
-            unsafe { Display::new(display_handle).expect("failed to create egl display") };
-        let config_template = glutin::config::ConfigTemplateBuilder::new()
-            .with_api(Api::OPENGL)
-            .with_alpha_size(0)
-            .build();
-        let config = unsafe {
-            display
-                .find_configs(config_template)
-                .expect("failed to find display configurations")
-                .next()
-                .expect("empty display configurations")
-        };
-        let context = unsafe {
-            display
-                .create_context(
-                    &config,
-                    &ContextAttributesBuilder::new()
-                        .with_debug(false)
-                        .with_profile(glutin::context::GlProfile::Core)
-                        .build(None),
-                )
-                .expect("failed to create egl context")
-        }
-        .make_current_surfaceless()
-        .expect("failed to make egl context current");
+        let shm = Shm::bind(globals, qh).expect("wl_shm is not available");
+        let pool = SlotPool::new(256 * 256 * 4, &shm).expect("failed to create SlotPool");
 
         Self {
             // Outputs may be hotplugged at runtime, therefore we need to setup a registry state to
@@ -275,13 +235,11 @@ impl Daemon {
             registry_state: RegistryState::new(globals),
             output_state: OutputState::new(globals, qh),
             compositor_state,
+            shm,
+            pool,
             layer_shell,
 
-            renderer: Renderer::new(&display),
             wallpapers: Vec::new(),
-            context,
-            display,
-            config,
         }
     }
 
@@ -290,7 +248,8 @@ impl Daemon {
             .outputs()
             .filter_map(|output| {
                 if let Some(info) = self.output_state.info(&output) {
-                    if let Some(wallpaper) = self.wallpapers.iter().find(|w| w.output_id == info.id)
+                    if let Some(wallpaper) =
+                        self.wallpapers.iter().find(|w| w.output_id.0 == info.id)
                     {
                         return Some(BgInfo {
                             name: info.name.unwrap_or("?".to_string()),
@@ -327,19 +286,24 @@ impl Daemon {
     pub fn clear_by_id(&mut self, ids: Vec<u32>, color: [u8; 3]) {
         // TODO: STOP ANIMATIONS
         for wallpaper in self.wallpapers.iter_mut() {
-            if ids.contains(&wallpaper.output_id) {
-                wallpaper.clear(color);
-                wallpaper.draw(&self.renderer, &self.context);
+            if ids.contains(&wallpaper.output_id.0) {
+                wallpaper.clear(&mut self.pool, color);
+                wallpaper.draw( &mut self.pool);
             }
         }
     }
 
-    pub fn set_img_by_id(&mut self, ids: Vec<u32>, img: &[u8], path: &Path) {
+    pub fn set_img_by_id(
+        &mut self,
+        ids: Vec<u32>,
+        img: &[u8],
+        path: &Path,
+    ) {
         // TODO: STOP ANIMATIONS
         for wallpaper in self.wallpapers.iter_mut() {
-            if ids.contains(&wallpaper.output_id) {
-                wallpaper.set_img(img, path.to_owned());
-                wallpaper.draw(&self.renderer, &self.context);
+            if ids.contains(&wallpaper.output_id.0) {
+                wallpaper.set_img(&mut self.pool, img, path.to_owned());
+                wallpaper.draw(&mut self.pool);
             }
         }
     }
@@ -356,12 +320,12 @@ impl CompositorHandler for Daemon {
         for wallpaper in self.wallpapers.iter_mut() {
             if wallpaper.layer_surface.wl_surface() == surface {
                 wallpaper.resize(
-                    &self.context,
+                    &mut self.pool,
                     wallpaper.width,
                     wallpaper.height,
-                    NonZeroU32::new(new_factor as u32).unwrap(),
+                    NonZeroI32::new(new_factor).unwrap(),
                 );
-                wallpaper.draw(&self.renderer, &self.context);
+                wallpaper.draw(&mut self.pool);
                 return;
             }
         }
@@ -376,7 +340,7 @@ impl CompositorHandler for Daemon {
     ) {
         for wallpaper in self.wallpapers.iter_mut() {
             if wallpaper.layer_surface.wl_surface() == surface {
-                wallpaper.draw(&self.renderer, &self.context);
+                wallpaper.draw(&mut self.pool);
                 return;
             }
         }
@@ -411,12 +375,8 @@ impl OutputHandler for Daemon {
                 Some(&output),
             );
 
-            self.wallpapers.push(Wallpaper::new(
-                output_info,
-                layer_surface,
-                &self.config,
-                &self.display,
-            ));
+            self.wallpapers
+                .push(Wallpaper::new(output_info, layer_surface, &mut self.pool));
         }
     }
 
@@ -429,21 +389,23 @@ impl OutputHandler for Daemon {
         if let Some(output_info) = self.output_state.info(&output) {
             if let Some(output_size) = output_info.logical_size {
                 if output_size.0 == 0 || output_size.1 == 0 {
-                    // TODO: print error
+                    error!(
+                        "output dimensions cannot be '0'. Received: {:#?}",
+                        output_size
+                    );
                     return;
                 }
                 for wallpaper in self.wallpapers.iter_mut() {
-                    if wallpaper.output_id == output_info.id {
+                    if wallpaper.output_id.0 == output_info.id {
                         let (width, height) = (
-                            NonZeroU32::new(output_size.0 as u32).unwrap(),
-                            NonZeroU32::new(output_size.1 as u32).unwrap(),
+                            NonZeroI32::new(output_size.0).unwrap(),
+                            NonZeroI32::new(output_size.1).unwrap(),
                         );
-                        let scale_factor =
-                            NonZeroU32::new(output_info.scale_factor as u32).unwrap();
+                        let scale_factor = NonZeroI32::new(output_info.scale_factor).unwrap();
                         if (width, height, scale_factor)
                             != (wallpaper.width, wallpaper.height, wallpaper.scale_factor)
                         {
-                            wallpaper.resize(&self.context, width, height, scale_factor);
+                            wallpaper.resize(&mut self.pool, width, height, scale_factor);
                         }
                         return;
                     }
@@ -459,8 +421,14 @@ impl OutputHandler for Daemon {
         output: wl_output::WlOutput,
     ) {
         if let Some(output_info) = self.output_state.info(&output) {
-            self.wallpapers.retain(|w| w.output_id != output_info.id);
+            self.wallpapers.retain(|w| w.output_id.0 != output_info.id);
         }
+    }
+}
+
+impl ShmHandler for Daemon {
+    fn shm_state(&mut self) -> &mut Shm {
+        &mut self.shm
     }
 }
 
@@ -483,12 +451,12 @@ impl LayerShellHandler for Daemon {
                     (256.try_into().unwrap(), 256.try_into().unwrap())
                 } else {
                     (
-                        configure.new_size.0.try_into().unwrap(),
-                        configure.new_size.1.try_into().unwrap(),
+                        NonZeroI32::new(configure.new_size.0 as i32).unwrap(),
+                        NonZeroI32::new(configure.new_size.1 as i32).unwrap(),
                     )
                 };
-                wallpaper.resize(&self.context, width, height, wallpaper.scale_factor);
-                wallpaper.draw(&self.renderer, &self.context);
+                wallpaper.resize(&mut self.pool, width, height, wallpaper.scale_factor);
+                wallpaper.draw(&mut self.pool);
                 return;
             }
         }
@@ -497,6 +465,7 @@ impl LayerShellHandler for Daemon {
 
 delegate_compositor!(Daemon);
 delegate_output!(Daemon);
+delegate_shm!(Daemon);
 
 delegate_layer!(Daemon);
 
