@@ -48,7 +48,7 @@ impl WallpaperBuffer {
 
     pub fn set_inner_len(&mut self, new_len: usize) {
         let mut write_lock = self.inner.write().unwrap();
-        *write_lock = vec![255; new_len].into_boxed_slice();
+        *write_lock = vec![0; new_len].into_boxed_slice();
     }
 }
 
@@ -106,7 +106,7 @@ impl Wallpaper {
                 .unwrap()
         };
         let buf = WallpaperBuffer::new(vec![
-            255;
+            0;
             width.get() as usize
                 * height.get() as usize
                 * scale_factor.get() as usize

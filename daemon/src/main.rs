@@ -308,7 +308,7 @@ impl Daemon {
             .filter_map(|output| {
                 if let Some(info) = self.output_state.info(&output) {
                     if let Some(name) = info.name {
-                        if names.contains(&name) {
+                        if names.is_empty() || names.contains(&name) {
                             return Some(info.id);
                         }
                     }
