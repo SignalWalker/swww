@@ -34,7 +34,7 @@ use std::{
 use raw_window_handle::{RawDisplayHandle, WaylandDisplayHandle};
 
 use smithay_client_toolkit::{
-    compositor::{CompositorHandler, CompositorState},
+    compositor::{CompositorHandler, CompositorState, Region},
     delegate_compositor, delegate_layer, delegate_output, delegate_registry,
     output::{OutputHandler, OutputState},
     registry::{ProvidesRegistryState, RegistryState},
@@ -87,6 +87,12 @@ fn main() -> DaemonResult<()> {
 
     let mut daemon = Daemon::new(&conn, &globals, &qh);
 
+    if let Ok(true) = sd_notify::booted() {
+        if let Err(e) = sd_notify::notify(true, &[sd_notify::NotifyState::Ready]) {
+            error!("Error sending status update to systemd: {}", e.to_string());
+        }
+    }
+    info!("Initialization succeeded! Starting main loop...");
     let mut poll_handler = PollHandler::new(&listener);
     while !should_daemon_exit() {
         // Process wayland events
@@ -390,6 +396,13 @@ impl OutputHandler for Daemon {
     ) {
         if let Some(output_info) = self.output_state.info(&output) {
             let surface = self.compositor_state.create_surface(qh);
+
+            // Wayland clients are expected to render the cursor on their input region.
+            // By setting the input region to an empty region, the compositor renders the
+            // default cursor. Without this, an empty desktop won't render a cursor.
+            if let Ok(region) = Region::new(&self.compositor_state) {
+                surface.set_input_region(Some(region.wl_region()));
+            }
             let layer_surface = self.layer_shell.create_layer_surface(
                 qh,
                 surface,
