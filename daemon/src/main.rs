@@ -20,7 +20,7 @@ use std::{
         unix::net::{UnixListener, UnixStream},
     },
     path::Path,
-    sync::{Arc, Mutex, RwLock},
+    sync::{Arc, Mutex, MutexGuard, RwLock},
 };
 
 use smithay_client_toolkit::{
@@ -257,7 +257,7 @@ impl Daemon {
     }
 
     pub fn wallpapers_info(&self) -> Vec<BgInfo> {
-        let wallpapers = self.wallpapers.lock().unwrap();
+        let (_pool, wallpapers) = lock_pool_and_wallpapers(&self.pool, &self.wallpapers);
         self.output_state
             .outputs()
             .filter_map(|output| {
@@ -296,8 +296,8 @@ impl Daemon {
     }
 
     pub fn clear_by_id(&mut self, ids: Vec<OutputId>, color: [u8; 3]) {
-        let mut pool = self.pool.lock().unwrap();
-        for wallpaper in self.wallpapers.lock().unwrap().iter_mut() {
+        let (mut pool, mut wallpapers) = lock_pool_and_wallpapers(&self.pool, &self.wallpapers);
+        for wallpaper in wallpapers.iter_mut() {
             if ids.contains(&wallpaper.output_id) {
                 wallpaper.img = BgImg::Color(color);
                 wallpaper.clear(&mut pool, color);
@@ -307,8 +307,8 @@ impl Daemon {
     }
 
     pub fn set_img_by_id(&mut self, ids: Vec<OutputId>, img: &[u8], path: &Path) {
-        let mut pool = self.pool.lock().unwrap();
-        for wallpaper in self.wallpapers.lock().unwrap().iter_mut() {
+        let (mut pool, mut wallpapers) = lock_pool_and_wallpapers(&self.pool, &self.wallpapers);
+        for wallpaper in wallpapers.iter_mut() {
             if ids.contains(&wallpaper.output_id) {
                 wallpaper.img = BgImg::Img(path.to_owned());
                 wallpaper.set_img(&mut pool, img);
@@ -326,8 +326,8 @@ impl CompositorHandler for Daemon {
         surface: &wl_surface::WlSurface,
         new_factor: i32,
     ) {
-        let mut pool = self.pool.lock().unwrap();
-        for wallpaper in self.wallpapers.lock().unwrap().iter_mut() {
+        let (mut pool, mut wallpapers) = lock_pool_and_wallpapers(&self.pool, &self.wallpapers);
+        for wallpaper in wallpapers.iter_mut() {
             if wallpaper.layer_surface.wl_surface() == surface {
                 wallpaper.resize(
                     &mut pool,
@@ -348,8 +348,8 @@ impl CompositorHandler for Daemon {
         surface: &wl_surface::WlSurface,
         _time: u32,
     ) {
-        let mut pool = self.pool.lock().unwrap();
-        for wallpaper in self.wallpapers.lock().unwrap().iter_mut() {
+        let (mut pool, mut wallpapers) = lock_pool_and_wallpapers(&self.pool, &self.wallpapers);
+        for wallpaper in wallpapers.iter_mut() {
             if wallpaper.layer_surface.wl_surface() == surface {
                 wallpaper.draw(&mut pool);
                 return;
@@ -386,12 +386,8 @@ impl OutputHandler for Daemon {
                 Some(&output),
             );
 
-            let mut pool = self.pool.lock().unwrap();
-            self.wallpapers.lock().unwrap().push(Wallpaper::new(
-                output_info,
-                layer_surface,
-                &mut pool,
-            ));
+            let (mut pool, mut wallpapers) = lock_pool_and_wallpapers(&self.pool, &self.wallpapers);
+            wallpapers.push(Wallpaper::new(output_info, layer_surface, &mut pool));
         }
     }
 
@@ -410,8 +406,9 @@ impl OutputHandler for Daemon {
                     );
                     return;
                 }
-                let mut pool = self.pool.lock().unwrap();
-                for wallpaper in self.wallpapers.lock().unwrap().iter_mut() {
+                let (mut pool, mut wallpapers) =
+                    lock_pool_and_wallpapers(&self.pool, &self.wallpapers);
+                for wallpaper in wallpapers.iter_mut() {
                     if wallpaper.output_id.0 == output_info.id {
                         let (width, height) = (
                             NonZeroI32::new(output_size.0).unwrap(),
@@ -436,11 +433,9 @@ impl OutputHandler for Daemon {
         _qh: &QueueHandle<Self>,
         output: wl_output::WlOutput,
     ) {
+        let (mut _pools, mut wallpapers) = lock_pool_and_wallpapers(&self.pool, &self.wallpapers);
         if let Some(output_info) = self.output_state.info(&output) {
-            self.wallpapers
-                .lock()
-                .unwrap()
-                .retain(|w| w.output_id.0 != output_info.id);
+            wallpapers.retain(|w| w.output_id.0 != output_info.id);
         }
     }
 }
@@ -453,10 +448,8 @@ impl ShmHandler for Daemon {
 
 impl LayerShellHandler for Daemon {
     fn closed(&mut self, _conn: &Connection, _qh: &QueueHandle<Self>, layer: &LayerSurface) {
-        self.wallpapers
-            .lock()
-            .unwrap()
-            .retain(|w| w.layer_surface != *layer)
+        let (mut _pools, mut wallpapers) = lock_pool_and_wallpapers(&self.pool, &self.wallpapers);
+        wallpapers.retain(|w| w.layer_surface != *layer)
     }
 
     fn configure(
@@ -467,8 +460,8 @@ impl LayerShellHandler for Daemon {
         configure: LayerSurfaceConfigure,
         _serial: u32,
     ) {
-        let mut pool = self.pool.lock().unwrap();
-        for wallpaper in self.wallpapers.lock().unwrap().iter_mut() {
+        let (mut pool, mut wallpapers) = lock_pool_and_wallpapers(&self.pool, &self.wallpapers);
+        for wallpaper in wallpapers.iter_mut() {
             if wallpaper.layer_surface == *layer {
                 let (width, height) = if configure.new_size.0 == 0 || configure.new_size.1 == 0 {
                     (256.try_into().unwrap(), 256.try_into().unwrap())
@@ -514,6 +507,24 @@ fn make_logger() {
         ColorChoice::AlwaysAnsi,
     )
     .expect("Failed to initialize logger. Cancelling...");
+}
+
+pub fn lock_pool_and_wallpapers<'a>(
+    pool: &'a Arc<Mutex<SlotPool>>,
+    wallpapers: &'a Arc<Mutex<Vec<Wallpaper>>>,
+) -> (MutexGuard<'a, SlotPool>, MutexGuard<'a, Vec<Wallpaper>>) {
+    use std::sync::TryLockError;
+    loop {
+        match (pool.try_lock(), wallpapers.try_lock()) {
+            (Ok(pool), Ok(wallpapers)) => return (pool, wallpapers),
+            (Err(TryLockError::WouldBlock), Ok(_))
+            | (Ok(_), Err(TryLockError::WouldBlock))
+            | (Err(TryLockError::WouldBlock), Err(TryLockError::WouldBlock)) => {
+                std::thread::yield_now()
+            }
+            _ => panic!("failed to lock"),
+        }
+    }
 }
 
 fn recv_socket_msg(daemon: &mut Daemon, processor: &mut Processor, stream: UnixStream) {

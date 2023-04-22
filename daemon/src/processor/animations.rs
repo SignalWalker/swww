@@ -8,7 +8,7 @@ use log::debug;
 use smithay_client_toolkit::shm::slot::SlotPool;
 use utils::communication::{Position, TransitionType};
 
-use crate::wallpaper::Wallpaper;
+use crate::{lock_pool_and_wallpapers, wallpaper::Wallpaper};
 
 use keyframe::{
     functions::BezierCurve, keyframes, mint::Vector2, num_traits::Pow, AnimationSequence,
@@ -33,28 +33,24 @@ macro_rules! wallpaper_canvas {
 }
 
 macro_rules! owned_wallpapers {
-    ($transition:ident) => {
-        $transition
-            .wallpapers
-            .lock()
-            .unwrap()
+    ($transition:ident, $wallpapers:ident) => {
+        $wallpapers
             .iter_mut()
             .filter(|w| w.is_owned_by($transition.thread_id))
     };
 }
 
 macro_rules! draw_wallpapers {
-    ($transition:ident, $now:ident) => {
-        let timeout = $transition.fps.saturating_sub($now.elapsed());
-        {
-            let mut pool = $transition.pool.lock().unwrap();
-            for wallpaper in owned_wallpapers!($transition) {
-                wallpaper.draw(&mut pool);
-            }
+    ($transition:ident, $now:ident) => {{
+        let (mut pool, mut wallpapers) =
+            lock_pool_and_wallpapers(&$transition.pool, &$transition.wallpapers);
+        for wallpaper in owned_wallpapers!($transition, wallpapers) {
+            wallpaper.draw(&mut pool);
         }
-        std::thread::sleep(timeout);
-        nix::sys::signal::kill(nix::unistd::Pid::this(), nix::sys::signal::SIGUSR1).unwrap();
-    };
+    }
+    let timeout = $transition.fps.saturating_sub($now.elapsed());
+    std::thread::sleep(timeout);
+    nix::sys::signal::kill(nix::unistd::Pid::this(), nix::sys::signal::SIGUSR1).unwrap();};
 }
 
 macro_rules! change_cols {
@@ -161,9 +157,9 @@ impl Transition {
         while !done {
             done = true;
             {
-                let mut pool = self.pool.lock().unwrap();
-                for wallpaper in owned_wallpapers!(self) {
-                    debug!("{}", wallpaper.output_id.0);
+                let (mut pool, mut wallpapers) =
+                    lock_pool_and_wallpapers(&self.pool, &self.wallpapers);
+                for wallpaper in owned_wallpapers!(self, wallpapers) {
                     let canvas = wallpaper_canvas!(wallpaper, pool, new_img);
                     for (old, new) in canvas.chunks_exact_mut(4).zip(new_img.chunks_exact(4)) {
                         change_cols!(step, old, new, done);
@@ -223,8 +219,9 @@ impl Transition {
 
         while start.elapsed().as_secs_f64() < seq.duration() {
             {
-                let mut pool = self.pool.lock().unwrap();
-                for wallpaper in owned_wallpapers!(self) {
+                let (mut pool, mut wallpapers) =
+                    lock_pool_and_wallpapers(&self.pool, &self.wallpapers);
+                for wallpaper in owned_wallpapers!(self, wallpapers) {
                     let canvas = wallpaper_canvas!(wallpaper, pool, new_img);
                     for (i, (old, new)) in canvas
                         .chunks_exact_mut(4)
@@ -287,8 +284,9 @@ impl Transition {
 
         while start.elapsed().as_secs_f64() < seq.duration() {
             {
-                let mut pool = self.pool.lock().unwrap();
-                for wallpaper in owned_wallpapers!(self) {
+                let (mut pool, mut wallpapers) =
+                    lock_pool_and_wallpapers(&self.pool, &self.wallpapers);
+                for wallpaper in owned_wallpapers!(self, wallpapers) {
                     let canvas = wallpaper_canvas!(wallpaper, pool, new_img);
                     for (i, (old, new)) in canvas
                         .chunks_exact_mut(4)
@@ -336,8 +334,9 @@ impl Transition {
 
         while start.elapsed().as_secs_f64() < seq.duration() {
             {
-                let mut pool = self.pool.lock().unwrap();
-                for wallpaper in owned_wallpapers!(self) {
+                let (mut pool, mut wallpapers) =
+                    lock_pool_and_wallpapers(&self.pool, &self.wallpapers);
+                for wallpaper in owned_wallpapers!(self, wallpapers) {
                     let canvas = wallpaper_canvas!(wallpaper, pool, new_img);
                     for (i, (old, new)) in canvas
                         .chunks_exact_mut(4)
@@ -388,8 +387,9 @@ impl Transition {
 
         while start.elapsed().as_secs_f64() < seq.duration() {
             {
-                let mut pool = self.pool.lock().unwrap();
-                for wallpaper in owned_wallpapers!(self) {
+                let (mut pool, mut wallpapers) =
+                    lock_pool_and_wallpapers(&self.pool, &self.wallpapers);
+                for wallpaper in owned_wallpapers!(self, wallpapers) {
                     let canvas = wallpaper_canvas!(wallpaper, pool, new_img);
                     for (i, (old, new)) in canvas
                         .chunks_exact_mut(4)

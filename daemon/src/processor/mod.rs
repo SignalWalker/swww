@@ -14,7 +14,10 @@ use utils::{
     comp_decomp::ReadiedPack,
 };
 
-use crate::wallpaper::{OutputId, Wallpaper};
+use crate::{
+    lock_pool_and_wallpapers,
+    wallpaper::{OutputId, Wallpaper},
+};
 
 mod animations;
 mod sync_barrier;
@@ -57,20 +60,23 @@ impl Processor {
                 .stack_size(TSTACK_SIZE) //the default of 2MB is way too overkill for this
                 .spawn(move || {
                     let mut dimensions = None;
-                    for wallpaper in wallpapers
-                        .lock()
-                        .unwrap()
-                        .iter_mut()
-                        .filter(|w| outputs.contains(&w.output_id))
                     {
-                        wallpaper.chown();
-                        wallpaper.img = BgImg::Img(path.clone());
-                        wallpaper.in_transition = true;
-                        if dimensions.is_none() {
-                            dimensions = Some((
-                                wallpaper.width.get() as u32 * wallpaper.scale_factor.get() as u32,
-                                wallpaper.height.get() as u32 * wallpaper.scale_factor.get() as u32,
-                            ));
+                        let (_pool, mut wallpapers) = lock_pool_and_wallpapers(&pool, &wallpapers);
+                        for wallpaper in wallpapers
+                            .iter_mut()
+                            .filter(|w| outputs.contains(&w.output_id))
+                        {
+                            wallpaper.chown();
+                            wallpaper.img = BgImg::Img(path.clone());
+                            wallpaper.in_transition = true;
+                            if dimensions.is_none() {
+                                dimensions = Some((
+                                    wallpaper.width.get() as u32
+                                        * wallpaper.scale_factor.get() as u32,
+                                    wallpaper.height.get() as u32
+                                        * wallpaper.scale_factor.get() as u32,
+                                ));
+                            }
                         }
                     }
 
