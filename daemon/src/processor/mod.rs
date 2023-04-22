@@ -157,13 +157,15 @@ impl Processor {
                         barrier.inc_and_wait(*duration);
                     }
 
+                    let mut done = true;
                     {
                         let (mut pool, mut wallpapers) =
                             lock_pool_and_wallpapers(&pool, &wallpapers);
-                        for wallpaper in wallpapers
-                            .iter_mut()
-                            .filter(|w| outputs.contains(&w.output_id))
-                        {
+                        for wallpaper in wallpapers.iter_mut().filter(|w| {
+                            outputs.contains(&w.output_id)
+                                && w.is_owned_by(std::thread::current().id())
+                        }) {
+                            done = false;
                             let mut i = 0;
                             while wallpaper.slot.has_active_buffers() && i < 100 {
                                 i += 1;
@@ -174,6 +176,9 @@ impl Processor {
                                 wallpaper.draw(&mut pool);
                             }
                         }
+                    }
+                    if done {
+                        return;
                     }
 
                     let timeout = duration.saturating_sub(now.elapsed());
