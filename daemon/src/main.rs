@@ -198,7 +198,8 @@ impl PollHandler {
     }
 
     pub fn block(&mut self, wayland_fd: RawFd) {
-        self.fds[Self::WAYLAND_FD] = PollFd::new(wayland_fd, PollFlags::POLLIN);
+        self.fds[Self::WAYLAND_FD] =
+            PollFd::new(wayland_fd, PollFlags::POLLIN | PollFlags::POLLRDBAND);
         match poll(&mut self.fds, -1) {
             Ok(_) => (),
             Err(e) => match e {
@@ -456,26 +457,11 @@ impl LayerShellHandler for Daemon {
         &mut self,
         _conn: &Connection,
         _qh: &QueueHandle<Self>,
-        layer: &LayerSurface,
-        configure: LayerSurfaceConfigure,
+        _layer: &LayerSurface,
+        _configure: LayerSurfaceConfigure,
         _serial: u32,
     ) {
-        let (mut pool, mut wallpapers) = lock_pool_and_wallpapers(&self.pool, &self.wallpapers);
-        for wallpaper in wallpapers.iter_mut() {
-            if wallpaper.layer_surface == *layer {
-                let (width, height) = if configure.new_size.0 == 0 || configure.new_size.1 == 0 {
-                    (256.try_into().unwrap(), 256.try_into().unwrap())
-                } else {
-                    (
-                        NonZeroI32::new(configure.new_size.0 as i32).unwrap(),
-                        NonZeroI32::new(configure.new_size.1 as i32).unwrap(),
-                    )
-                };
-                wallpaper.resize(&mut pool, width, height, wallpaper.scale_factor);
-                wallpaper.draw(&mut pool);
-                return;
-            }
-        }
+        // We don't care about layer surface resizes, we care about output resizes
     }
 }
 
