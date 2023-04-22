@@ -531,7 +531,14 @@ fn recv_socket_msg(daemon: &mut Daemon, processor: &mut Processor, stream: UnixS
     let request = Request::receive(&stream);
     let answer = match request {
         Ok(request) => match request {
-            Request::Animation(_animations) => Answer::Err("Not implemented".to_string()),
+            Request::Animation(animations) => {
+                let mut result = Answer::Ok;
+                for animation in animations {
+                    let ids = daemon.find_wallpapers_id_by_names(animation.1);
+                    result = processor.animate(&daemon.pool, animation.0, ids, &daemon.wallpapers);
+                }
+                result
+            }
             Request::Clear(clear) => {
                 let ids = daemon.find_wallpapers_id_by_names(clear.outputs);
                 daemon.clear_by_id(ids, clear.color);

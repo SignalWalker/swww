@@ -100,15 +100,15 @@ pub struct Transition {
 /// All transitions return whether or not they completed
 impl Transition {
     pub fn new(
-        wallpapers: Arc<Mutex<Vec<Wallpaper>>>,
+        wallpapers: &Arc<Mutex<Vec<Wallpaper>>>,
         dimensions: (u32, u32),
         transition: utils::communication::Transition,
-        pool: Arc<Mutex<SlotPool>>,
+        pool: &Arc<Mutex<SlotPool>>,
     ) -> Self {
         let thread_id = std::thread::current().id();
         Transition {
-            wallpapers,
-            pool,
+            wallpapers: Arc::clone(wallpapers),
+            pool: Arc::clone(pool),
             dimensions,
             transition_type: transition.transition_type,
             duration: transition.duration,
