@@ -9,10 +9,7 @@ use std::{
     time::Duration,
 };
 
-use utils::{
-    communication::{Animation, Answer, BgImg, BgInfo, Img},
-    comp_decomp::ReadiedPack,
-};
+use utils::communication::{Animation, Answer, BgImg, BgInfo, Img};
 
 use crate::{
     lock_pool_and_wallpapers,
@@ -95,10 +92,9 @@ impl Processor {
 
                     {
                         let (_pool, mut wallpapers) = lock_pool_and_wallpapers(&pool, &wallpapers);
-                        for wallpaper in wallpapers
-                            .iter_mut()
-                            .filter(|w| outputs.contains(&w.output_id))
-                        {
+                        for wallpaper in wallpapers.iter_mut().filter(|w| {
+                            outputs.contains(&w.output_id) || w.is_owned_by(thread::current().id())
+                        }) {
                             wallpaper.in_transition = false;
                         }
                     }
@@ -143,7 +139,7 @@ impl Processor {
                             break;
                         }
                     }
-                    std::thread::yield_now();
+                    std::thread::sleep(Duration::from_micros(100));
                 }
                 {
                     let (_pool, mut wallpapers) = lock_pool_and_wallpapers(&pool, &wallpapers);
@@ -168,8 +164,10 @@ impl Processor {
                             .iter_mut()
                             .filter(|w| outputs.contains(&w.output_id))
                         {
-                            while wallpaper.slot.has_active_buffers() {
-                                thread::yield_now()
+                            let mut i = 0;
+                            while wallpaper.slot.has_active_buffers() && i < 100 {
+                                i += 1;
+                                std::thread::sleep(Duration::from_micros(100));
                             }
                             if let Some(canvas) = wallpaper.slot.canvas(&mut pool) {
                                 frame.ready(canvas.len()).unpack(canvas);
