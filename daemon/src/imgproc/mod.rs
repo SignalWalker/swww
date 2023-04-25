@@ -104,7 +104,10 @@ impl Imgproc {
                     for wallpaper in wallpapers.iter_mut() {
                         let mut pool = wallpaper.lock_pool_to_get_canvas(&pool);
                         let canvas = wallpaper.get_canvas(&mut pool);
-                        frame.ready(canvas.len()).unpack(canvas);
+                        if !frame.unpack(canvas) {
+                            error!("failed to unpack frame, canvas has the wrong size");
+                            return;
+                        }
                         wallpaper.draw(&mut pool);
                     }
 
