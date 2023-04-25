@@ -58,27 +58,39 @@ pub fn compress_frames(
     no_resize: bool,
     color: &[u8; 3],
 ) -> Result<Vec<(BitPack, Duration)>, String> {
+    // TODO: use a pipeline to speed this up
     let mut compressed_frames = Vec::new();
-    let frames = gif.into_frames().collect_frames().unwrap();
-    let frames: Vec<(Duration, Vec<u8>)> = frames
-        .into_iter()
-        .map(|fr| {
-            let (dur_num, dur_div) = fr.delay().numer_denom_ms();
-            let duration = Duration::from_millis((dur_num / dur_div).into());
-            let img = if no_resize {
-                img_pad(frame_to_rgb(fr), dim, color).unwrap()
-            } else {
-                img_resize(frame_to_rgb(fr), dim, filter).unwrap()
-            };
-            (duration, img)
-        })
-        .collect();
-    let fr1 = frames.iter().cycle().take(frames.len());
-    let fr2 = frames.iter().cycle().skip(1).take(frames.len());
+    let mut frames = gif.into_frames();
 
-    for (prev, cur) in fr1.zip(fr2) {
-        compressed_frames.push((BitPack::pack(&prev.1, &cur.1)?, cur.0));
+    // The first frame should always exist
+    let first = frames.next().unwrap().unwrap();
+    let first_duration = first.delay().numer_denom_ms();
+    let first_duration = Duration::from_millis((first_duration.0 / first_duration.1).into());
+    let first_img = if no_resize {
+        img_pad(frame_to_rgb(first), dim, color)?
+    } else {
+        img_resize(frame_to_rgb(first), dim, filter)?
+    };
+
+    let mut canvas: Option<Vec<u8>> = None;
+    while let Some(Ok(frame)) = frames.next() {
+        let (dur_num, dur_div) = frame.delay().numer_denom_ms();
+        let duration = Duration::from_millis((dur_num / dur_div).into());
+
+        let img = if no_resize {
+            img_pad(frame_to_rgb(frame), dim, color)?
+        } else {
+            img_resize(frame_to_rgb(frame), dim, filter)?
+        };
+
+        compressed_frames.push((
+            BitPack::pack(canvas.as_ref().unwrap_or(&first_img), &img)?,
+            duration,
+        ));
+        canvas = Some(img);
     }
+    //Add the first frame we got earlier:
+    compressed_frames.push((BitPack::pack(&canvas.unwrap(), &first_img)?, first_duration));
 
     Ok(compressed_frames)
 }
@@ -181,7 +193,6 @@ pub fn img_resize(
 
     // The ARGB is 'little endian', so here we must  put the order
     // of bytes 'in reverse', so it needs to be BGRA.
-    eprintln!("Todo: fast rgb -> bgr conversion");
     for pixel in resized_img.chunks_exact_mut(3) {
         pixel.swap(0, 2);
     }
