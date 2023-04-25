@@ -2,4 +2,9 @@ Update sctk
 
 Fully automated, complete testing, for every option
 
-We are busy waiting with thread sleep. That's an actual problem
+Optimizations in client:
+	- rgb instead of rgba (less things to send through the socket)
+		- fast convertion algorithms
+	- byte_pack rgb instad of rgba
+	- byte_pach two immutable slices
+		- unlocks parallelism

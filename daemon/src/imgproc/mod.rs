@@ -51,14 +51,14 @@ impl Imgproc {
                     }
                     let dimensions = wallpapers[0].get_dimensions();
 
-                    if img.len() == dimensions.0 as usize * dimensions.1 as usize * 4 {
+                    if img.len() == dimensions.0 as usize * dimensions.1 as usize * 3 {
                         animations::Transition::new(wallpapers, dimensions, transition, pool)
                             .execute(&img);
                     } else {
                         error!(
                             "image is of wrong size! Image len: {}, expected size: {}",
                             img.len(),
-                            dimensions.0 as usize * dimensions.1 as usize * 4
+                            dimensions.0 as usize * dimensions.1 as usize * 3
                         );
                     }
                 })
