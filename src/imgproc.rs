@@ -24,7 +24,7 @@ pub fn read_img(path: &Path) -> Result<(RgbImage, bool), String> {
         }
 
         return match image::load_from_memory(&buffer) {
-            Ok(img) => Ok((dynamic_image_to_rgb(img), false)),
+            Ok(img) => Ok((img.into_rgb8(), false)),
             Err(e) => return Err(format!("failed load image from memory: {e}")),
         };
     }
@@ -41,23 +41,14 @@ pub fn read_img(path: &Path) -> Result<(RgbImage, bool), String> {
 
     let is_gif = imgbuf.format() == Some(image::ImageFormat::Gif);
     match imgbuf.decode() {
-        Ok(img) => Ok((dynamic_image_to_rgb(img), is_gif)),
+        Ok(img) => Ok((img.into_rgb8(), is_gif)),
         Err(e) => Err(format!("failed to decode image: {e}")),
-    }
-}
-
-pub fn dynamic_image_to_rgb(img: DynamicImage) -> RgbImage {
-    if let DynamicImage::ImageRgba8(_) = img {
-        eprintln!("TODO: specialized conversion function");
-        img.into_rgb8()
-    } else {
-        img.into_rgb8()
     }
 }
 
 #[inline]
 pub fn frame_to_rgb(frame: image::Frame) -> RgbImage {
-    dynamic_image_to_rgb(DynamicImage::ImageRgba8(frame.into_buffer()))
+    DynamicImage::ImageRgba8(frame.into_buffer()).into_rgb8()
 }
 
 pub fn compress_frames(
