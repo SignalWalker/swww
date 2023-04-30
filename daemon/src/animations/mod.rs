@@ -1,5 +1,5 @@
 use log::error;
-use rkyv::{string::ArchivedString, boxed::ArchivedBox, Deserialize};
+use rkyv::{boxed::ArchivedBox, string::ArchivedString, Deserialize};
 use smithay_client_toolkit::shm::slot::SlotPool;
 
 use std::{

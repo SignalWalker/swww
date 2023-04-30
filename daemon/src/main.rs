@@ -9,7 +9,7 @@ use nix::{
     poll::{poll, PollFd, PollFlags},
     sys::signal::{self, SigHandler, Signal},
 };
-use rkyv::{string::ArchivedString, boxed::ArchivedBox};
+use rkyv::{boxed::ArchivedBox, string::ArchivedString};
 use simplelog::{ColorChoice, TermLogger, TerminalMode, ThreadLogMode};
 use wallpaper::Wallpaper;
 
@@ -332,7 +332,10 @@ impl Daemon {
             .collect()
     }
 
-    fn find_wallpapers_by_names(&self, names: &ArchivedBox<[ArchivedString]>) -> Vec<Arc<Wallpaper>> {
+    fn find_wallpapers_by_names(
+        &self,
+        names: &ArchivedBox<[ArchivedString]>,
+    ) -> Vec<Arc<Wallpaper>> {
         self.output_state
             .outputs()
             .filter_map(|output| {

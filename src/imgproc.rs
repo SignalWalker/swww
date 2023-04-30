@@ -9,8 +9,8 @@ use std::{
 };
 
 use utils::{
-    ipc::{self, Coord, Position},
     comp_decomp::BitPack,
+    ipc::{self, Coord, Position},
 };
 
 use super::cli;

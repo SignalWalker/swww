@@ -5,7 +5,7 @@ use std::{
 
 use log::debug;
 use smithay_client_toolkit::shm::slot::SlotPool;
-use utils::ipc::{ArchivedTransitionType, ArchivedPosition};
+use utils::ipc::{ArchivedPosition, ArchivedTransitionType};
 
 use crate::wallpaper::Wallpaper;
 
