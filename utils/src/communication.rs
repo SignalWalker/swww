@@ -9,14 +9,14 @@ use std::{
 
 use crate::comp_decomp::BitPack;
 
-#[derive(PartialEq, Clone, Archive, Serialize, Deserialize, Debug)]
+#[derive(PartialEq, Archive, Serialize)]
 #[archive_attr(derive(Clone))]
 pub enum Coord {
     Pixel(f32),
     Percent(f32),
 }
 
-#[derive(PartialEq, Clone, Archive, Serialize, Deserialize, Debug)]
+#[derive(PartialEq, Archive, Serialize)]
 #[archive_attr(derive(Clone))]
 pub struct Position {
     pub x: Coord,
@@ -24,10 +24,12 @@ pub struct Position {
 }
 
 impl Position {
+    #[must_use]
     pub fn new(x: Coord, y: Coord) -> Self {
         Self { x, y }
     }
 
+    #[must_use]
     pub fn to_pixel(&self, dim: (u32, u32)) -> (f32, f32) {
         let x = match self.x {
             Coord::Pixel(x) => x,
@@ -42,6 +44,7 @@ impl Position {
         (x, y)
     }
 
+    #[must_use]
     pub fn to_percent(&self, dim: (u32, u32)) -> (f32, f32) {
         let x = match self.x {
             Coord::Pixel(x) => x / dim.0 as f32,
@@ -58,6 +61,7 @@ impl Position {
 }
 
 impl ArchivedPosition {
+    #[must_use]
     pub fn to_pixel(&self, dim: (u32, u32)) -> (f32, f32) {
         let x = match self.x {
             ArchivedCoord::Pixel(x) => x,
@@ -73,7 +77,8 @@ impl ArchivedPosition {
     }
 }
 
-#[derive(PartialEq, Eq, Clone, Archive, Serialize, Deserialize)]
+#[derive(PartialEq, Clone, Archive, Serialize, Deserialize)]
+#[archive_attr(derive(PartialEq))]
 pub enum BgImg {
     Color([u8; 3]),
     Img(String),
@@ -90,7 +95,26 @@ impl fmt::Display for BgImg {
     }
 }
 
-#[derive(Clone, Archive, Serialize, Deserialize)]
+impl ArchivedBgImg {
+    /// Deserialized the archived bg img
+    #[must_use]
+    pub fn de(&self) -> BgImg {
+        self.deserialize(&mut rkyv::Infallible).unwrap()
+    }
+}
+
+impl fmt::Display for ArchivedBgImg {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            ArchivedBgImg::Color(color) => {
+                write!(f, "color: {:02X}{:02X}{:02X}", color[0], color[1], color[2])
+            }
+            ArchivedBgImg::Img(p) => write!(f, "image: {p}",),
+        }
+    }
+}
+
+#[derive(Clone, Archive, Serialize)]
 pub struct BgInfo {
     pub name: String,
     pub dim: (u32, u32),
@@ -108,7 +132,7 @@ impl BgInfo {
     }
 }
 
-impl fmt::Display for BgInfo {
+impl fmt::Display for ArchivedBgInfo {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(
             f,
@@ -118,7 +142,7 @@ impl fmt::Display for BgInfo {
     }
 }
 
-#[derive(Archive, Serialize, Deserialize, Debug)]
+#[derive(Archive, Serialize)]
 #[archive_attr(derive(Clone))]
 pub enum TransitionType {
     Simple,
@@ -128,7 +152,7 @@ pub enum TransitionType {
     Wave,
 }
 
-#[derive(Archive, Serialize, Deserialize)]
+#[derive(Archive, Serialize)]
 #[archive_attr(derive(Clone))]
 pub struct Transition {
     pub transition_type: TransitionType,
@@ -141,19 +165,19 @@ pub struct Transition {
     pub wave: (f32, f32),
 }
 
-#[derive(Archive, Serialize, Deserialize)]
+#[derive(Archive, Serialize)]
 pub struct Clear {
     pub color: [u8; 3],
     pub outputs: Vec<String>,
 }
 
-#[derive(Archive, Serialize, Deserialize)]
+#[derive(Archive, Serialize)]
 pub struct Img {
     pub path: String,
     pub img: Vec<u8>,
 }
 
-#[derive(Archive, Serialize, Deserialize)]
+#[derive(Archive, Serialize)]
 pub struct Animation {
     pub animation: Box<[(BitPack, Duration)]>,
     pub sync: bool,
@@ -162,7 +186,7 @@ pub struct Animation {
 pub type AnimationRequest = Vec<(Animation, Vec<String>)>;
 pub type ImageRequest = (Transition, Vec<(Img, Vec<String>)>);
 
-#[derive(Archive, Serialize, Deserialize)]
+#[derive(Archive, Serialize)]
 pub enum Request {
     Animation(AnimationRequest),
     Clear(Clear),
@@ -179,20 +203,23 @@ impl Request {
             Err(e) => return Err(format!("Failed to serialize request: {e}")),
         };
         let mut writer = BufWriter::new(stream);
-        writer.write_all(&bytes.len().to_ne_bytes());
+        if let Err(e) = writer.write_all(&bytes.len().to_ne_bytes()) {
+            return Err(format!("failed to write serialized request's lenght: {e}"));
+        }
         if let Err(e) = writer.write_all(&bytes) {
-            Err(format!("Failed to write serialized request: {e}"))
+            Err(format!("failed to write serialized request: {e}"))
         } else {
             Ok(())
         }
     }
 
+    #[must_use]
     pub fn receive(bytes: &[u8]) -> &ArchivedRequest {
         unsafe { rkyv::archived_root::<Self>(bytes) }
     }
 }
 
-#[derive(Archive, Serialize, Deserialize)]
+#[derive(Archive, Serialize)]
 pub enum Answer {
     Ok,
     Err(String),
@@ -206,7 +233,9 @@ impl Answer {
             Err(e) => return Err(format!("Failed to serialize answer: {e}")),
         };
         let mut writer = BufWriter::new(stream);
-        writer.write_all(&bytes.len().to_ne_bytes());
+        if let Err(e) = writer.write_all(&bytes.len().to_ne_bytes()) {
+            return Err(format!("failed to write serialized answer's length: {e}"));
+        }
         if let Err(e) = writer.write_all(&bytes) {
             Err(format!("Failed to write serialized anwser: {e}"))
         } else {
@@ -214,20 +243,18 @@ impl Answer {
         }
     }
 
-    pub fn receive(bytes: &[u8]) -> Result<Self, String> {
-        match unsafe { rkyv::archived_root::<Self>(bytes) }.deserialize(&mut rkyv::Infallible) {
-            Ok(answer) => Ok(answer),
-            Err(e) => Err(format!("failed to receive answer: {e}")),
-        }
+    #[must_use]
+    pub fn receive(bytes: &[u8]) -> &ArchivedAnswer {
+        unsafe { rkyv::archived_root::<Self>(bytes) }
     }
 }
 
 pub fn read_socket(stream: &UnixStream) -> Result<Vec<u8>, String> {
     let mut reader = BufReader::new(stream);
     let mut buf = vec![0; 8];
-    reader
-        .read_exact(&mut buf[0..std::mem::size_of::<usize>()])
-        .unwrap();
+    if let Err(e) = reader.read_exact(&mut buf[0..std::mem::size_of::<usize>()]) {
+        return Err(format!("failed to read serialized length: {e}"));
+    }
     let len = usize::from_ne_bytes(buf[0..std::mem::size_of::<usize>()].try_into().unwrap());
     buf.clear();
     buf.resize(len, 0);
