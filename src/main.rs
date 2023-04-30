@@ -133,9 +133,9 @@ fn make_img_request(
         unique_requests.push((
             ipc::Img {
                 img: if img.no_resize {
-                    img_pad(img_raw.clone(), *dim, &img.fill_color)?
+                    img_pad(img_raw.clone(), *dim, &img.fill_color)?.into_boxed_slice()
                 } else {
-                    img_resize(img_raw.clone(), *dim, make_filter(&img.filter))?
+                    img_resize(img_raw.clone(), *dim, make_filter(&img.filter))?.into_boxed_slice()
                 },
                 path: match img.path.canonicalize() {
                     Ok(p) => p.to_string_lossy().to_string(),
