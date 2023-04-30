@@ -9,7 +9,7 @@ use std::{
 };
 
 use utils::{
-    communication::{self, Coord, Position},
+    ipc::{self, Coord, Position},
     comp_decomp::BitPack,
 };
 
@@ -279,7 +279,7 @@ pub fn img_resize(
     Ok(resized_img)
 }
 
-pub fn make_transition(img: &cli::Img) -> communication::Transition {
+pub fn make_transition(img: &cli::Img) -> ipc::Transition {
     let mut angle = img.transition_angle;
 
     let x = match img.transition_pos.x {
@@ -309,30 +309,30 @@ pub fn make_transition(img: &cli::Img) -> communication::Transition {
     let mut pos = Position::new(x, y);
 
     let transition_type = match img.transition_type {
-        cli::TransitionType::Simple => communication::TransitionType::Simple,
-        cli::TransitionType::Wipe => communication::TransitionType::Wipe,
-        cli::TransitionType::Outer => communication::TransitionType::Outer,
-        cli::TransitionType::Grow => communication::TransitionType::Grow,
-        cli::TransitionType::Wave => communication::TransitionType::Wave,
+        cli::TransitionType::Simple => ipc::TransitionType::Simple,
+        cli::TransitionType::Wipe => ipc::TransitionType::Wipe,
+        cli::TransitionType::Outer => ipc::TransitionType::Outer,
+        cli::TransitionType::Grow => ipc::TransitionType::Grow,
+        cli::TransitionType::Wave => ipc::TransitionType::Wave,
         cli::TransitionType::Right => {
             angle = 0.0;
-            communication::TransitionType::Wipe
+            ipc::TransitionType::Wipe
         }
         cli::TransitionType::Top => {
             angle = 90.0;
-            communication::TransitionType::Wipe
+            ipc::TransitionType::Wipe
         }
         cli::TransitionType::Left => {
             angle = 180.0;
-            communication::TransitionType::Wipe
+            ipc::TransitionType::Wipe
         }
         cli::TransitionType::Bottom => {
             angle = 270.0;
-            communication::TransitionType::Wipe
+            ipc::TransitionType::Wipe
         }
         cli::TransitionType::Center => {
             pos = Position::new(Coord::Percent(0.5), Coord::Percent(0.5));
-            communication::TransitionType::Grow
+            ipc::TransitionType::Grow
         }
         cli::TransitionType::Any => {
             pos = Position::new(
@@ -340,9 +340,9 @@ pub fn make_transition(img: &cli::Img) -> communication::Transition {
                 Coord::Percent(rand::random::<f32>()),
             );
             if rand::random::<u8>() % 2 == 0 {
-                communication::TransitionType::Grow
+                ipc::TransitionType::Grow
             } else {
-                communication::TransitionType::Outer
+                ipc::TransitionType::Outer
             }
         }
         cli::TransitionType::Random => {
@@ -352,16 +352,16 @@ pub fn make_transition(img: &cli::Img) -> communication::Transition {
             );
             angle = rand::random();
             match rand::random::<u8>() % 4 {
-                0 => communication::TransitionType::Simple,
-                1 => communication::TransitionType::Wipe,
-                2 => communication::TransitionType::Outer,
-                3 => communication::TransitionType::Grow,
+                0 => ipc::TransitionType::Simple,
+                1 => ipc::TransitionType::Wipe,
+                2 => ipc::TransitionType::Outer,
+                3 => ipc::TransitionType::Grow,
                 _ => unreachable!(),
             }
         }
     };
 
-    communication::Transition {
+    ipc::Transition {
         duration: img.transition_duration,
         step: img.transition_step,
         fps: img.transition_fps,

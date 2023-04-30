@@ -5,7 +5,7 @@ use std::{
 
 use log::debug;
 use smithay_client_toolkit::shm::slot::SlotPool;
-use utils::communication::{ArchivedTransitionType, ArchivedPosition};
+use utils::ipc::{ArchivedTransitionType, ArchivedPosition};
 
 use crate::wallpaper::Wallpaper;
 
@@ -60,7 +60,7 @@ impl Transition {
     pub fn new(
         wallpapers: Vec<Arc<Wallpaper>>,
         dimensions: (u32, u32),
-        transition: utils::communication::ArchivedTransition,
+        transition: utils::ipc::ArchivedTransition,
         pool: Arc<Mutex<SlotPool>>,
     ) -> Self {
         Transition {

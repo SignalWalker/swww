@@ -8,7 +8,7 @@ use std::{
     thread::{self, Scope},
 };
 
-use utils::communication::{
+use utils::ipc::{
     Answer, ArchivedAnimation, ArchivedImg, ArchivedRequest, ArchivedTransition, BgImg, Request,
 };
 

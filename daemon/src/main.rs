@@ -42,7 +42,7 @@ use wayland_client::{
     Connection, QueueHandle,
 };
 
-use utils::communication::{get_socket_path, Answer, ArchivedRequest, BgInfo, Request};
+use utils::ipc::{get_socket_path, Answer, ArchivedRequest, BgInfo, Request};
 
 use animations::Animator;
 
@@ -262,7 +262,7 @@ impl Daemon {
     }
 
     fn recv_socket_msg(&mut self, stream: UnixStream) {
-        let bytes = match utils::communication::read_socket(&stream) {
+        let bytes = match utils::ipc::read_socket(&stream) {
             Ok(bytes) => bytes,
             Err(e) => {
                 error!("FATAL: cannot read socket: {e}. Exiting...");
