@@ -188,7 +188,7 @@ pub fn img_pad(
     mut img: RgbImage,
     dimensions: (u32, u32),
     color: &[u8; 3],
-) -> Result<Vec<u8>, String> {
+) -> Result<Box<[u8]>, String> {
     let (padded_w, padded_h) = dimensions;
     let (padded_w, padded_h) = (padded_w as usize, padded_h as usize);
     let mut padded = Vec::with_capacity(padded_w * padded_w * 3);
@@ -229,14 +229,14 @@ pub fn img_pad(
         padded.push(color[0]);
     }
 
-    Ok(padded)
+    Ok(padded.into_boxed_slice())
 }
 
 pub fn img_resize(
     img: RgbImage,
     dimensions: (u32, u32),
     filter: FilterType,
-) -> Result<Vec<u8>, String> {
+) -> Result<Box<[u8]>, String> {
     let (width, height) = dimensions;
     let (img_w, img_h) = img.dimensions();
     let mut resized_img = if (img_w, img_h) != (width, height) {
@@ -265,9 +265,9 @@ pub fn img_resize(
             return Err(e.to_string());
         }
 
-        dst.into_vec()
+        dst.into_vec().into_boxed_slice()
     } else {
-        img.into_vec()
+        img.into_vec().into_boxed_slice()
     };
 
     // The ARGB is 'little endian', so here we must  put the order
