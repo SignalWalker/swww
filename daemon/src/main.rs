@@ -4,7 +4,7 @@
 
 mod animations;
 mod wallpaper;
-use log::{debug, error, info, LevelFilter};
+use log::{debug, error, info, warn, LevelFilter};
 use nix::{
     poll::{poll, PollFd, PollFlags},
     sys::signal::{self, SigHandler, Signal},
@@ -439,6 +439,22 @@ impl OutputHandler for Daemon {
                 Some("swww"),
                 Some(&output),
             );
+
+            if let Some(name) = &output_info.name {
+                let name = name.to_owned();
+                if let Err(e) = std::thread::Builder::new()
+                    .name("cache loader".to_string())
+                    .stack_size(1 << 14)
+                    .spawn(move || {
+                        //std::thread::sleep(std::time::Duration::from_millis(1000));
+                        if let Err(e) = utils::cache::load(&name) {
+                            warn!("failed to load cache: {e}");
+                        }
+                    })
+                {
+                    warn!("failed to spawn `cache loader` thread: {e}");
+                }
+            }
 
             self.wallpapers.push(Arc::new(Wallpaper::new(
                 output_info,

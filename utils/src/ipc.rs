@@ -209,6 +209,15 @@ impl Request {
         if let Err(e) = writer.write_all(&bytes) {
             Err(format!("failed to write serialized request: {e}"))
         } else {
+            if let Self::Img((_, imgs)) = self {
+                for (Img { path, .. }, outputs) in imgs.iter() {
+                    for output in outputs.iter() {
+                        if let Err(e) = super::cache::store(output, path) {
+                            eprintln!("ERROR: failed to store cache: {e}");
+                        }
+                    }
+                }
+            }
             Ok(())
         }
     }
