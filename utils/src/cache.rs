@@ -38,6 +38,14 @@ pub fn load(output_name: &str) -> Result<(), String> {
         return Ok(());
     }
 
+    if let Ok(mut child) = std::process::Command::new("pidof").arg("swww").spawn() {
+        if let Ok(status) = child.wait() {
+            if status.success() {
+                return Err("there is already another swww process running".to_string());
+            }
+        }
+    }
+
     match std::process::Command::new("swww")
         .arg("img")
         .args([
