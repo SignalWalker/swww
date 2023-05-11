@@ -153,6 +153,9 @@ pub enum Swww {
         ///builds we only log info, warnings and errors, so you won't be seeing much (ideally).
         #[clap(long)]
         no_daemon: bool,
+
+        #[clap(long)]
+        no_cache: bool,
     },
 
     ///Kills the daemon

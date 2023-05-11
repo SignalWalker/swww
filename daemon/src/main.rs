@@ -68,6 +68,11 @@ extern "C" fn signal_handler(s: i32) {
 
 type DaemonResult<T> = Result<T, String>;
 fn main() -> DaemonResult<()> {
+    let no_cache = {
+        let mut args = std::env::args();
+        args.next();
+        args.next() == Some("no-cache".to_string())
+    };
     make_logger();
     let listener = SocketWrapper::new()?;
 
@@ -87,7 +92,7 @@ fn main() -> DaemonResult<()> {
         registry_queue_init(&conn).expect("failed to initialize the event queue");
     let qh = event_queue.handle();
 
-    let mut daemon = Daemon::new(&globals, &qh);
+    let mut daemon = Daemon::new(&globals, &qh, no_cache);
 
     if let Ok(true) = sd_notify::booted() {
         if let Err(e) = sd_notify::notify(true, &[sd_notify::NotifyState::Ready]) {
@@ -232,10 +237,11 @@ struct Daemon {
     // swww stuff
     wallpapers: Vec<Arc<Wallpaper>>,
     animator: Animator,
+    no_cache: bool,
 }
 
 impl Daemon {
-    fn new(globals: &GlobalList, qh: &QueueHandle<Self>) -> Self {
+    fn new(globals: &GlobalList, qh: &QueueHandle<Self>, no_cache: bool) -> Self {
         // The compositor (not to be confused with the server which is commonly called the compositor) allows
         // configuring surfaces to be presented.
         let compositor_state =
@@ -258,6 +264,7 @@ impl Daemon {
 
             wallpapers: Vec::new(),
             animator: Animator::new(),
+            no_cache,
         }
     }
 
@@ -310,6 +317,7 @@ impl Daemon {
             }
             ArchivedRequest::Query => Answer::Info(self.wallpapers_info()),
             ArchivedRequest::Img((_, imgs)) => {
+                self.no_cache = false;
                 let mut used_wallpapers = Vec::new();
                 for img in imgs.iter() {
                     let mut wallpapers = self.find_wallpapers_by_names(&img.1);
@@ -440,21 +448,23 @@ impl OutputHandler for Daemon {
                 Some(&output),
             );
 
-            if let Some(name) = &output_info.name {
-                let name = name.to_owned();
-                if let Err(e) = std::thread::Builder::new()
-                    .name("cache loader".to_string())
-                    .stack_size(1 << 14)
-                    .spawn(move || {
-                        // Wait for a bit for the output to be properly configured and stuff
-                        // this is obviously not ideal, but it solves the vast majority of problems
-                        std::thread::sleep(std::time::Duration::from_millis(100));
-                        if let Err(e) = utils::cache::load(&name) {
-                            warn!("failed to load cache: {e}");
-                        }
-                    })
-                {
-                    warn!("failed to spawn `cache loader` thread: {e}");
+            if !self.no_cache {
+                if let Some(name) = &output_info.name {
+                    let name = name.to_owned();
+                    if let Err(e) = std::thread::Builder::new()
+                        .name("cache loader".to_string())
+                        .stack_size(1 << 14)
+                        .spawn(move || {
+                            // Wait for a bit for the output to be properly configured and stuff
+                            // this is obviously not ideal, but it solves the vast majority of problems
+                            std::thread::sleep(std::time::Duration::from_millis(100));
+                            if let Err(e) = utils::cache::load(&name) {
+                                warn!("failed to load cache: {e}");
+                            }
+                        })
+                    {
+                        warn!("failed to spawn `cache loader` thread: {e}");
+                    }
                 }
             }
 

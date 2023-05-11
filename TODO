@@ -3,3 +3,4 @@ Fully automated, complete testing, for every option
 	testing many things with different setups. Maybe we can script it somehow?
 
 Redocument cache
+	Document --no-cache option for init

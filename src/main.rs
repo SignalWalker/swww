@@ -14,7 +14,11 @@ use cli::Swww;
 
 fn main() -> Result<(), String> {
     let swww = Swww::parse();
-    if let Swww::Init { no_daemon } = &swww {
+    if let Swww::Init {
+        no_daemon,
+        no_cache,
+    } = &swww
+    {
         match is_daemon_running() {
             Ok(false) => {
                 let socket_path = get_socket_path();
@@ -43,7 +47,7 @@ fn main() -> Result<(), String> {
                 }
             }
         }
-        spawn_daemon(*no_daemon)?;
+        spawn_daemon(*no_daemon, *no_cache)?;
         if *no_daemon {
             return Ok(());
         }
@@ -240,19 +244,18 @@ fn split_cmdline_outputs(outputs: &str) -> Box<[String]> {
         .collect()
 }
 
-fn spawn_daemon(no_daemon: bool) -> Result<(), String> {
-    let cmd = "swww-daemon";
+fn spawn_daemon(no_daemon: bool, no_cache: bool) -> Result<(), String> {
+    let mut cmd = std::process::Command::new("swww-daemon");
+    if no_cache {
+        cmd.arg("no-cache");
+    }
     if no_daemon {
-        match std::process::Command::new(cmd).status() {
+        match cmd.status() {
             Ok(_) => Ok(()),
             Err(e) => Err(format!("error spawning swww-daemon: {e}")),
         }
     } else {
-        match std::process::Command::new(cmd)
-            .stdout(Stdio::null())
-            .stderr(Stdio::null())
-            .spawn()
-        {
+        match cmd.stdout(Stdio::null()).stderr(Stdio::null()).spawn() {
             Ok(_) => Ok(()),
             Err(e) => Err(format!("error spawning swww-daemon: {e}")),
         }
