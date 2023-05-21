@@ -4,3 +4,5 @@ Fully automated, complete testing, for every option
 
 Redocument cache
 	Document --no-cache option for init
+
+DEADLOCK - gif play on monitor 1, turn on monitor 2, gif play on monitor 2, turn off monitor 2
