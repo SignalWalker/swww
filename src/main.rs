@@ -15,11 +15,7 @@ use cli::Swww;
 
 fn main() -> Result<(), String> {
     let swww = Swww::parse();
-    if let Swww::Init {
-        no_daemon,
-        no_cache,
-    } = &swww
-    {
+    if let Swww::Init { no_daemon } = &swww {
         match is_daemon_running() {
             Ok(false) => {
                 let socket_path = get_socket_path();
@@ -48,7 +44,7 @@ fn main() -> Result<(), String> {
                 }
             }
         }
-        spawn_daemon(*no_daemon, *no_cache)?;
+        spawn_daemon(*no_daemon)?;
         if *no_daemon {
             return Ok(());
         }
@@ -258,11 +254,8 @@ fn split_cmdline_outputs(outputs: &str) -> Box<[String]> {
         .collect()
 }
 
-fn spawn_daemon(no_daemon: bool, no_cache: bool) -> Result<(), String> {
+fn spawn_daemon(no_daemon: bool) -> Result<(), String> {
     let mut cmd = std::process::Command::new("swww-daemon");
-    if no_cache {
-        cmd.arg("no-cache");
-    }
     if no_daemon {
         match cmd.status() {
             Ok(_) => Ok(()),
