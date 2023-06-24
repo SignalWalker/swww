@@ -216,8 +216,7 @@ fn make_animation_request(
     let mut animations = Vec::with_capacity(dims.len());
     for (dim, outputs) in dims.iter().zip(outputs) {
         match cache::load_animation_frames(&img.path, *dim) {
-            Ok(Some(mut animation)) => {
-                animation.sync = img.sync;
+            Ok(Some(animation)) => {
                 animations.push((animation, outputs.to_owned().into_boxed_slice()));
                 continue;
             }
@@ -239,7 +238,6 @@ fn make_animation_request(
             dimensions: *dim,
             animation: compress_frames(gif, *dim, filter, img.no_resize, &img.fill_color)?
                 .into_boxed_slice(),
-            sync: img.sync,
         };
         animations.push((animation, outputs.to_owned().into_boxed_slice()));
     }

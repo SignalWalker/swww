@@ -182,7 +182,6 @@ pub struct Animation {
     pub animation: Box<[(BitPack, Duration)]>,
     pub path: String,
     pub dimensions: (u32, u32),
-    pub sync: bool,
 }
 
 pub type AnimationRequest = Box<[(Animation, Box<[String]>)]>;
